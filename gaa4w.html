@@ -1,0 +1,243 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>GAAv4 — Generador de archivos aleatorios</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { height: 100%; }
+  body {
+    font-family: "Helvetica Neue", Helvetica, Arial, sans-serif;
+    background: #f4f2ec;
+    color: #111;
+    padding: 6vw;
+    display: flex;
+    flex-direction: column;
+    min-height: 100%;
+  }
+  .head {
+    border-bottom: 2px solid #111;
+    padding-bottom: 12px;
+    margin-bottom: 48px;
+  }
+  h1 {
+    font-size: clamp(28px, 6vw, 64px);
+    font-weight: 700;
+    letter-spacing: -0.02em;
+    line-height: 0.95;
+    text-transform: uppercase;
+  }
+  .head p {
+    margin-top: 10px;
+    font-size: 13px;
+    text-transform: uppercase;
+    letter-spacing: 0.15em;
+  }
+  .grid { max-width: 640px; }
+  .field {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    border-bottom: 1px solid #111;
+    padding: 18px 0;
+  }
+  .field label {
+    font-size: 15px;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+  }
+  .field input {
+    font-family: inherit;
+    font-size: clamp(24px, 5vw, 40px);
+    font-weight: 700;
+    text-align: right;
+    width: 3.5em;
+    border: none;
+    background: transparent;
+    color: #111;
+    letter-spacing: -0.02em;
+  }
+  .field input:focus { outline: none; }
+  .formats {
+    padding: 26px 0;
+    border-bottom: 1px solid #111;
+    display: flex;
+    gap: 40px;
+  }
+  .formats .lbl {
+    font-size: 15px;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    align-self: center;
+  }
+  .fmt { display: flex; align-items: center; gap: 12px; cursor: pointer; user-select: none; }
+  .fmt input { position: absolute; opacity: 0; }
+  .box {
+    width: 26px; height: 26px;
+    border: 2px solid #111;
+    display: grid; place-items: center;
+  }
+  .box::after { content: ""; width: 12px; height: 12px; background: #111; transform: scale(0); transition: transform .1s; }
+  .fmt input:checked + .box::after { transform: scale(1); }
+  .fmt span { font-size: clamp(22px, 4vw, 32px); font-weight: 700; letter-spacing: -0.02em; }
+  button {
+    margin-top: 48px;
+    width: 100%;
+    max-width: 640px;
+    background: #111;
+    color: #f4f2ec;
+    border: none;
+    font-family: inherit;
+    font-size: clamp(22px, 4vw, 34px);
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.02em;
+    padding: 22px;
+    cursor: pointer;
+  }
+  button:hover:not(:disabled) { background: #d33a2c; }
+  button:disabled { opacity: 0.4; cursor: default; }
+  .status {
+    margin-top: 20px;
+    max-width: 640px;
+    font-size: 13px;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    min-height: 20px;
+  }
+  @media (max-width: 480px) {
+    .head { margin-bottom: 32px; }
+    .formats { flex-wrap: wrap; gap: 20px 28px; }
+    .formats .lbl { flex-basis: 100%; }
+    button { margin-top: 32px; }
+  }
+</style>
+</head>
+<body>
+  <div class="head">
+    <h1>GAAv4<br>Generador de<br>archivos aleatorios</h1>
+    <p>D0spher '24</p>
+  </div>
+
+  <div class="grid">
+    <div class="field">
+      <label>Número de archivos</label>
+      <input id="numFiles" type="number" value="5" min="1" max="500">
+    </div>
+    <div class="field">
+      <label>Páginas mínimas</label>
+      <input id="minPages" type="number" value="10" min="1" max="200">
+    </div>
+    <div class="formats">
+      <span class="lbl">Formato</span>
+      <label class="fmt">
+        <input type="checkbox" id="fmtPdf" checked>
+        <span class="box"></span><span>PDF</span>
+      </label>
+      <label class="fmt">
+        <input type="checkbox" id="fmtTxt">
+        <span class="box"></span><span>TXT</span>
+      </label>
+    </div>
+  </div>
+
+  <button id="go">Generar</button>
+  <div class="status" id="status"></div>
+
+<script>
+const { jsPDF } = window.jspdf;
+const ALNUM = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
+const CHARS_PER_BLOCK = 5000;   // tamano de cada bloque de relleno
+const CHARS_PER_PAGE  = 3500;   // estimacion para el equivalente en TXT
+
+function randomString(len) {
+  let out = "";
+  for (let i = 0; i < len; i++) out += ALNUM[(Math.random() * ALNUM.length) | 0];
+  return out;
+}
+
+function randomName() {
+  return String(10000 + ((Math.random() * 90000) | 0));
+}
+
+// PDF: sigue anadiendo texto hasta alcanzar el minimo de paginas (garantizado).
+function makePdf(minPages) {
+  const doc = new jsPDF({ unit: "mm", format: "a4" });
+  doc.setFont("courier", "normal");
+  doc.setFontSize(12);
+
+  const marginX = 15, marginTop = 15, lineH = 5;
+  const pageH = doc.internal.pageSize.getHeight();
+  const usableW = doc.internal.pageSize.getWidth() - marginX * 2;
+
+  let y = marginTop;
+  while (doc.getNumberOfPages() < minPages) {
+    const lines = doc.splitTextToSize(randomString(CHARS_PER_BLOCK), usableW);
+    for (const line of lines) {
+      if (y + lineH > pageH - marginTop) { doc.addPage(); y = marginTop; }
+      doc.text(line, marginX, y);
+      y += lineH;
+    }
+  }
+  return doc.output("blob");
+}
+
+// TXT: sin paginacion real, se genera contenido proporcional a las paginas.
+function makeTxt(minPages) {
+  return new Blob([randomString(minPages * CHARS_PER_PAGE)], { type: "text/plain" });
+}
+
+function download(blob, name) {
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url; a.download = name;
+  document.body.appendChild(a); a.click(); a.remove();
+  URL.revokeObjectURL(url);
+}
+
+const statusEl = document.getElementById("status");
+const btn = document.getElementById("go");
+
+btn.addEventListener("click", async () => {
+  const num = Math.max(1, parseInt(document.getElementById("numFiles").value) || 1);
+  const minPages = Math.max(1, parseInt(document.getElementById("minPages").value) || 10);
+  const wantPdf = document.getElementById("fmtPdf").checked;
+  const wantTxt = document.getElementById("fmtTxt").checked;
+
+  if (!wantPdf && !wantTxt) { statusEl.textContent = "Elige al menos un formato"; return; }
+
+  btn.disabled = true;
+  const t0 = performance.now();
+  const totalFiles = num * ((wantPdf ? 1 : 0) + (wantTxt ? 1 : 0));
+  const zip = totalFiles > 1 ? new JSZip() : null;
+
+  for (let i = 0; i < num; i++) {
+    statusEl.textContent = `Generando ${i + 1} / ${num}...`;
+    await new Promise(r => setTimeout(r, 0));
+
+    const base = randomName();
+    if (wantPdf) {
+      const blob = makePdf(minPages);
+      zip ? zip.file(base + ".pdf", blob) : download(blob, base + ".pdf");
+    }
+    if (wantTxt) {
+      const blob = makeTxt(minPages);
+      zip ? zip.file(base + ".txt", blob) : download(blob, base + ".txt");
+    }
+  }
+
+  if (zip) {
+    statusEl.textContent = "Empaquetando ZIP...";
+    download(await zip.generateAsync({ type: "blob" }), "junk0.zip");
+  }
+
+  const secs = ((performance.now() - t0) / 1000).toFixed(2);
+  statusEl.textContent = `${totalFiles} archivo(s) en ${secs} s` + (zip ? " -> junk0.zip" : "");
+  btn.disabled = false;
+});
+</script>
+</body>
+</html>
